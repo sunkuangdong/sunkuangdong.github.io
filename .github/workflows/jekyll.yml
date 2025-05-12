@@ -1,47 +1,66 @@
-name: Jekyll site CI/CD
+name: Deploy Jekyll site to Pages
 
 on:
   push:
-    branches: [ main ]
+    branches: ["main"] # 确保这是您的默认分支
   pull_request:
-    branches: [ main ]
+    branches: ["main"]
+  workflow_dispatch: # 允许手动触发
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive # 非常重要：确保检出 al-folio 子模块
 
-    - name: Set up Ruby
-      uses: ruby/setup-ruby@v1
-      with:
-        ruby-version: '3.2'
-        bundler-cache: true
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3' # al-folio 主题较新，使用一个较新的 Ruby 版本
+          bundler-cache: true # 缓存 gem 依赖
 
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y imagemagick python3-pip
+      - name: Install system dependencies (like ImageMagick)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y imagemagick python3-pip
 
-    - name: Install Jupyter
-      run: |
-        pip install jupyter
+      - name: Install Jupyter (if notebooks are used)
+        run: |
+          python3 -m pip install jupyter
 
-    - name: Install dependencies
-      run: |
-        gem install bundler
-        bundle install
+      - name: Setup Pages
+        id: pages
+        uses: actions/configure-pages@v5 # 配置 GitHub Pages 构建环境
 
-    - name: Build site
-      run: |
-        bundle exec jekyll build
-      env:
-        JEKYLL_ENV: production
+      - name: Build with Jekyll
+        run: bundle exec jekyll build --baseurl "${{ steps.pages.outputs.base_path }}" # 使用 configure-pages 的输出设置 baseurl
+        env:
+          JEKYLL_ENV: production
 
-    - name: Deploy
-      uses: peaceiris/actions-gh-pages@v3
-      if: github.ref == 'refs/heads/main'
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: ./_site
-        enable_jekyll: false
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3 # 上传构建好的站点 (_site 目录) 作为 artifact
+        with:
+          path: './_site'
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build # deploy 任务依赖于 build 任务的成功完成
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4 # 从 artifact 部署到 GitHub Pages
